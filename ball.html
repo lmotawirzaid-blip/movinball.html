@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>لعبة كرة الشمس - نظام الحسابات والمتجر</title>
+    <style>
+        :root {
+            --primary: #ffcc00;
+            --bg: #0a0a0a;
+            --panel: #1a1a1a;
+            --rainbow: linear-gradient(to right, red, orange, yellow, green, blue, indigo, violet);
+        }
+
+        body { margin: 0; overflow: hidden; background: var(--bg); font-family: 'Segoe UI', sans-serif; touch-action: none; color: white; }
+        canvas { display: block; }
+
+        /* شاشة تسجيل الدخول */
+        #loginScreen {
+            position: fixed; inset: 0; background: var(--bg);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 1000;
+        }
+
+        .login-panel {
+            background: var(--panel); padding: 30px; border-radius: 30px;
+            width: 85%; max-width: 350px; text-align: center;
+            border: 1px solid #333; box-shadow: 0 0 50px rgba(0,0,0,0.8);
+        }
+
+        input {
+            width: 100%; padding: 15px; margin: 10px 0; border-radius: 15px;
+            border: 1px solid #444; background: #252525; color: white; box-sizing: border-box; outline: none;
+        }
+
+        .start-btn {
+            width: 100%; padding: 15px; margin-top: 15px; border-radius: 15px;
+            border: none; background: var(--primary); color: black;
+            font-size: 18px; font-weight: bold; cursor: pointer;
+        }
+
+        /* واجهة اللعبة */
+        .top-ui {
+            position: absolute; top: 20px; left: 20px; right: 20px;
+            display: none; justify-content: space-between; align-items: center;
+            z-index: 100; pointer-events: none;
+        }
+
+        .controls-left { display: flex; gap: 10px; pointer-events: auto; }
+
+        .btn-ui {
+            background: rgba(255,255,255,0.1); backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 12px;
+            width: 50px; height: 50px; display: flex; align-items: center; justify-content: center;
+            cursor: pointer; font-size: 20px;
+        }
+
+        .score-val { font-size: 32px; font-weight: 900; text-align: right; }
+
+        /* المتجر العمودي */
+        .modal {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.9);
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 500; backdrop-filter: blur(8px);
+        }
+
+        .shop-panel {
+            background: var(--panel); padding: 20px; border-radius: 30px;
+            width: 90%; max-width: 400px; height: 80vh; display: flex; flex-direction: column;
+            border: 1px solid #444;
+        }
+
+        .skin-list-vertical {
+            flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;
+            padding: 10px; margin: 15px 0;
+        }
+
+        .skin-row {
+            background: #252525; padding: 12px; border-radius: 15px;
+            display: flex; align-items: center; justify-content: space-between;
+            border: 1px solid #333;
+        }
+
+        .skin-info { display: flex; align-items: center; gap: 15px; }
+
+        .skin-preview-circle { width: 35px; height: 35px; border-radius: 50%; }
+
+        .buy-btn {
+            padding: 8px 12px; border-radius: 10px; border: none;
+            background: var(--primary); font-weight: bold; cursor: pointer; min-width: 70px;
+        }
+
+        .owned { background: #444; color: #888; }
+        .legendary-border { border: 2px solid violet; box-shadow: 0 0 10px violet; }
+
+        .rainbow-text {
+            background: var(--rainbow); -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent; font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loginScreen">
+        <div class="login-panel">
+            <h1 style="color: var(--primary);">حساب اللاعب</h1>
+            <input type="text" id="username" placeholder="اسم المستخدم">
+            <input type="password" id="password" placeholder="كلمة المرور">
+            <button class="start-btn" onclick="tryLogin()">دخول / إنشاء حساب</button>
+            <p id="loginStatus" style="font-size: 12px; margin-top: 10px; color: #888;"></p>
+        </div>
+    </div>
+
+    <div class="top-ui" id="gameUI">
+        <div class="controls-left">
+            <div class="btn-ui" onclick="togglePause()">⏸</div>
+            <div class="btn-ui" onclick="openShop()">🛒</div>
+        </div>
+        <div>
+            <span class="score-val" id="score">0</span>
+            <small id="highScoreText" style="color: var(--primary); font-weight: bold; display:block; text-align:right;">أفضل: 0</small>
+            <div style="font-size: 16px; text-align: right; color: #00ff88;">💰 <span id="gameCoins">0</span></div>
+        </div>
+    </div>
+
+    <div id="shopModal" class="modal">
+        <div class="shop-panel">
+            <h2 style="color: var(--primary); margin: 0;">المتجر العمودي</h2>
+            <p>رصيدك: <span id="userCoins" style="color:#00ff88">0</span> 💰</p>
+            <div class="skin-list-vertical" id="skinList"></div>
+            <button class="start-btn" style="background: #ff3b3b; color: white;" onclick="closeShop()">إغلاق</button>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // --- نظام الصوت ---
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSound(freq, type, duration) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type; osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(); osc.stop(audioCtx.currentTime + duration);
+        }
+        const soundLib = {
+            buy: () => { playSound(600, 'triangle', 0.3); setTimeout(()=>playSound(800, 'triangle', 0.3), 100); },
+            score: () => playSound(440, 'sine', 0.1),
+            highScore: () => { playSound(523, 'square', 0.2); setTimeout(()=>playSound(659, 'square', 0.2), 150); },
+            crash: () => playSound(100, 'sawtooth', 0.4)
+        };
+
+        // --- البيانات والسكنات ---
+        let allAccounts = JSON.parse(localStorage.getItem('ballGame_Accounts')) || {};
+        let currentUser = null;
+        let userData = {};
+
+        const skins = {
+            default: { name: "الكرة الأساسية", color: "#ffffff", price: 0, type: 'normal' },
+            blue: { name: "الأزرق الهادئ", color: "#00d2ff", price: 50, type: 'normal' },
+            green: { name: "الأخضر النيون", color: "#39ff14", price: 100, type: 'normal' },
+            pink: { name: "الزهري الفاتن", color: "#ff007f", price: 150, type: 'normal' },
+            orange: { name: "البرتقالي", color: "#ff6700", price: 200, type: 'normal' },
+            purple: { name: "البنفسجي", color: "#8a2be2", price: 250, type: 'normal' },
+            lava: { name: "البركان", color: "#ff4500", price: 400, type: 'normal' },
+            silver: { name: "الفضي", color: "#c0c0c0", price: 500, type: 'normal' },
+            emerald: { name: "الزمرد", color: "#50c878", price: 600, type: 'normal' },
+            sun: { name: "كرة الشمس ☀️", color: "#ffcc00", price: 800, type: 'sun' },
+            star: { name: "النجمة ⭐", color: "#fff700", price: 1000, type: 'star' },
+            legendary: { name: "الأسطوري 🌈", color: "rainbow", price: 1500, type: 'legendary' }
+        };
+
+        let score = 0, isPaused = false, gameActive = false, obstacles = [];
+        let player = { x: 0, y: 0, radius: 15 };
+        let rainbowHue = 0;
+
+        // --- وظائف الحسابات ---
+        function tryLogin() {
+            const user = document.getElementById('username').value.trim();
+            const pass = document.getElementById('password').value.trim();
+            if(!user || !pass) return alert("أدخل البيانات كاملة!");
+
+            if(allAccounts[user]) {
+                if(allAccounts[user].password === pass) {
+                    loginSuccess(user);
+                } else {
+                    alert("كلمة المرور خاطئة!");
+                }
+            } else {
+                if(confirm("مستخدم جديد؟ سيتم إنشاء حسابك الآن.")) {
+                    allAccounts[user] = {
+                        password: pass,
+                        data: { coins: 0, highScore: 0, currentSkin: 'default', ownedSkins: ['default'] }
+                    };
+                    loginSuccess(user);
+                }
+            }
+        }
+
+        function loginSuccess(user) {
+            currentUser = user;
+            userData = allAccounts[user].data;
+            document.getElementById('loginScreen').style.display = "none";
+            document.getElementById('gameUI').style.display = "flex";
+            gameActive = true; initGame(); loop();
+        }
+
+        function save() {
+            if(currentUser) {
+                allAccounts[currentUser].data = userData;
+                localStorage.setItem('ballGame_Accounts', JSON.stringify(allAccounts));
+            }
+        }
+
+        // --- منطق اللعبة ---
+        function initGame() {
+            canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+            player.x = canvas.width / 2; player.y = canvas.height - 150;
+            obstacles = [];
+        }
+
+        function openShop() {
+            isPaused = true;
+            document.getElementById('shopModal').style.display = 'flex';
+            document.getElementById('userCoins').innerText = userData.coins;
+            const list = document.getElementById('skinList');
+            list.innerHTML = "";
+            
+            Object.keys(skins).forEach(key => {
+                const s = skins[key];
+                const owned = userData.ownedSkins.includes(key);
+                const isSelected = userData.currentSkin === key;
+                let previewStyle = s.color === 'rainbow' ? `background:var(--rainbow)` : `background:${s.color}`;
+                
+                list.innerHTML += `
+                    <div class="skin-row ${s.type === 'legendary' ? 'legendary-border' : ''}">
+                        <div class="skin-info">
+                            <div class="skin-preview-circle" style="${previewStyle}"></div>
+                            <span class="${s.type === 'legendary' ? 'rainbow-text' : ''}">${s.name}</span>
+                        </div>
+                        <button class="buy-btn ${owned ? 'owned' : ''}" onclick="buySkin('${key}')">
+                            ${owned ? (isSelected ? 'مجهز' : 'اختيار') : s.price + '💰'}
+                        </button>
+                    </div>`;
+            });
+        }
+
+        function buySkin(key) {
+            if(userData.ownedSkins.includes(key)) {
+                userData.currentSkin = key;
+                soundLib.score();
+            } else if(userData.coins >= skins[key].price) {
+                userData.coins -= skins[key].price;
+                userData.ownedSkins.push(key);
+                userData.currentSkin = key;
+                soundLib.buy();
+            }
+            save(); openShop();
+        }
+
+        function closeShop() { document.getElementById('shopModal').style.display = 'none'; isPaused = false; }
+        function togglePause() { isPaused = !isPaused; }
+
+        function update() {
+            if(!gameActive || isPaused) return;
+            rainbowHue = (rainbowHue + 3) % 360;
+
+            if(Math.random() < 0.04 && (obstacles.length === 0 || obstacles[obstacles.length-1].y > 220)) {
+                obstacles.push({ y: -50, gapX: Math.random() * (canvas.width - 150) + 10, passed: false });
+            }
+
+            obstacles.forEach((obs, i) => {
+                obs.y += (6 + (score * 0.05));
+                if(player.y < obs.y + 20 && player.y + 10 > obs.y && (player.x - 12 < obs.gapX || player.x + 12 > obs.gapX + 130)) {
+                    soundLib.crash();
+                    if(score > userData.highScore) { userData.highScore = score; soundLib.highScore(); }
+                    score = 0; obstacles = []; save();
+                }
+                if(!obs.passed && obs.y > player.y) { 
+                    obs.passed = true; score++; userData.coins += 5; // ربح العملات
+                    soundLib.score(); save();
+                }
+                if(obs.y > canvas.height) obstacles.splice(i, 1);
+            });
+
+            document.getElementById('score').innerText = score;
+            document.getElementById('gameCoins').innerText = userData.coins;
+            document.getElementById('highScoreText').innerText = "أفضل: " + userData.highScore;
+        }
+
+        function draw() {
+            ctx.fillStyle = "#0a0a0a"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "#333";
+            obstacles.forEach(obs => {
+                ctx.fillRect(0, obs.y, obs.gapX, 20);
+                ctx.fillRect(obs.gapX + 130, obs.y, canvas.width, 20);
+            });
+
+            const skin = skins[userData.currentSkin];
+            ctx.save();
+            if(skin.type === 'legendary') {
+                ctx.shadowBlur = 30; ctx.shadowColor = `hsl(${rainbowHue}, 100%, 50%)`;
+                ctx.fillStyle = `hsl(${rainbowHue}, 100%, 50%)`;
+            } else if(skin.type === 'sun') {
+                ctx.shadowBlur = 40; ctx.shadowColor = "#ff9500"; ctx.fillStyle = "#ffcc00";
+            } else if(skin.type === 'star') {
+                ctx.shadowBlur = 25; ctx.shadowColor = "#fff"; ctx.fillStyle = "#fff700";
+            } else {
+                ctx.shadowBlur = 15; ctx.shadowColor = skin.color; ctx.fillStyle = skin.color;
+            }
+            ctx.beginPath(); ctx.arc(player.x, player.y, player.radius, 0, Math.PI*2); ctx.fill();
+            ctx.restore();
+        }
+
+        const move = (e) => { if(gameActive && !isPaused) player.x = e.touches ? e.touches[0].clientX : e.clientX; };
+        window.addEventListener('mousemove', move);
+        window.addEventListener('touchmove', (e) => { e.preventDefault(); move(e); }, {passive:false});
+
+        function loop() { update(); draw(); requestAnimationFrame(loop); }
+    </script>
+</body>
+</html>
